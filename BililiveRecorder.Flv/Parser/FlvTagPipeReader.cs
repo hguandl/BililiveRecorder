@@ -31,6 +31,8 @@ namespace BililiveRecorder.Flv.Parser
 
         private bool fileHeader = false;
 
+        private bool hevc = false;
+
         public PipeReader Reader { get; }
 
         public FlvTagPipeReader(PipeReader reader, IMemoryStreamProvider memoryStreamProvider, ILogger? logger = null) : this(reader, memoryStreamProvider, false, logger) { }
@@ -244,10 +246,15 @@ namespace BililiveRecorder.Flv.Parser
                         {
                             var frame = tagBodyStream.ReadByte();
 
-                            if ((frame & 0x0F) != 7) // AVC
-                                throw new UnsupportedCodecException(string.Format("Unsupported Video Codec: {0}.", frame & 0x0F));
+                            var codec = frame & 0x0F;
+                            this.hevc = codec switch
+                            {
+                                7 => false, // AVC
+                                12 => true, // HEVC
+                                _ => throw new UnsupportedCodecException(string.Format("Unsupported Video Codec: {0}.", codec)),
+                            };
 
-                            if (frame == 0x17)
+                            if ((frame >> 4) == 1)
                                 tagFlag |= TagFlag.Keyframe;
                             var packet = tagBodyStream.ReadByte();
                             tagFlag |= packet switch
@@ -289,7 +296,7 @@ namespace BililiveRecorder.Flv.Parser
             }
             else if (tag.Type == TagType.Video && (0 == (tag.Flag & TagFlag.Header)))
             {
-                if (H264Nalu.TryParseNalu(tagBodyStream, out var nalus))
+                if (H264Nalu.TryParseNalu(tagBodyStream, this.hevc, out var nalus))
                     tag.Nalus = nalus;
             }
 
